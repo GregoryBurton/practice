@@ -412,7 +412,7 @@ clipperOffsetLoops = (loops, offsetamount, z)->
 #  window.polytree = offsetted_polytree
   offsetted_paths = new ClipperLib.Paths()
   co.Execute(offsetted_paths, offsetamount*clipperscale)
-  console.log(offsetted_paths)
+  #console.log(offsetted_paths)
   #Create my loops out of clipper loops
   scale_down = 1e-5
   loopsout = []
