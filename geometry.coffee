@@ -63,6 +63,12 @@ class Vector
     return true
   isEqualTo: (V)->
     return (this is V) or @allElementsEqual(V)
+  hashString: ()->
+    newkey = (v.toFixed(10) for v in @V).join(', ')
+    return newkey
+  printString: ()->
+    outstring = '(' + (v.toFixed(2) for v in @V).join(', ') + ') '
+    return outstring
 
 
 class Edge
@@ -101,6 +107,71 @@ class Edge
   consolelog: ()->
     console.log('['+@V0.V.join(',')+'] -> ['+@V1.V.join(',')+']')
 
+convertCollectionOfEdgesIntoLoops = (edges)->
+  #This function assumes that all loops made of the collection of edges
+  #are crack free. It also assumes that it is safe to return a self-intersecting loop
+  verts2edges = {}
+  for edge in edges
+    key = edge.V0.hashString()
+    if key of verts2edges
+      verts2edges[key].push(edge)
+    else
+      verts2edges[key] = [edge]
+  loops = []
+  for key,keyedges of verts2edges
+    for edge in keyedges when not edge.visited?
+      edge.visited = true
+      edgeloop = [ edge ]
+      nextkey = edge.V1.hashString()
+      anyappends = true #In case there is a crack and we can't ever get back to the beginning. That should never happen.
+      while (nextkey isnt key) and (anyappends is true)
+        anyappends = false
+        nextedges = verts2edges[nextkey]
+        #Just grab the first unvisited edge, when there is more than one it doesn't matter which you pick
+        for nextedge in nextedges when not nextedge.visited?
+          nextedge.visited = true
+          edgeloop.push(nextedge)
+          nextkey = nextedge.V1.hashString()
+          anyappends = true
+          break
+      loops.push(edgeloop)
+  for edge in edges
+    delete edge.visited
+  return loops
+
+printEdgeLoop = (edgeloop)->
+  console.log('0: '+edgeloop[0].V0.printString())
+  for e,i in edgeloop
+    console.log(i+': '+edgeloop[i].V1.printString())
+  return
+
+connectColinearSegmentsInEdgeLoop = (edgeloop)->
+  if edgeloop.length<2
+    return edgeloop
+#  console.log(edgeloop)
+  newloop = [edgeloop[0]]
+  lastedge = edgeloop[0]
+  for i in [1...edgeloop.length]
+    testedge = new Edge(lastedge.V0, edgeloop[i].V1)
+    #Check if this edge is colinear with lastedge
+    if( lastedge.V.normalized().dot( testedge.V.normalized() ) > (1.0-1e-6) )
+      lastedge = testedge
+      newloop[newloop.length-1] = testedge
+    else
+      newloop.push(edgeloop[i])
+      lastedge = edgeloop[i]
+  #At this point, it is possible that the last edge and first edge are colinear
+  testedge = new Edge(lastedge.V0, newloop[0].V1)
+  if( lastedge.V.normalized().dot( testedge.V.normalized() ) > (1.0-1e-6) )
+#    console.log('combining last and first')
+    #Change the start point of newloop[0] and pop the last edge
+    newloop[0] = testedge
+    newloop.pop()
+#  console.log('length was ' + edgeloop.length + ' now is ' + newloop.length)
+#  printEdgeLoop(edgeloop)
+#  printEdgeLoop(newloop)
+  return newloop
+
 
 class Triangle
   constructor: (V0, V1, V2)->
@@ -133,53 +204,70 @@ class Triangle
       if v.V[2]>zslice
         return true
     return false
+  sliceAtZ: (zslice)->
+    #Return the edge representing the zplane cut through this triangle
+    anybelow = false
+    for v in @Verts when v.V[2]<zslice
+      anybelow = true
+      break
+    if anybelow
+      #We do need to slice this triangle. Find a vertex above the line
+      indexabove=0
+      for v,i in @Verts when v.V[2]>=zslice
+        indexabove = i
+        break
+      #Now find the first index below
+      for i in [(indexabove+1)...(indexabove+3)] when @Verts[i%3].V[2]<zslice
+        indexbelow = i%3
+        indexabove = indexbelow-1
+        if indexabove<0
+          indexabove += 3
+        break
+      #Slice that edge
+      edgeabove = @Edges[indexabove].getPortionAboveZ(zslice)
+      V0 = edgeabove.V1
+      #Now find the next index above
+      for i in [(indexbelow+1)...(indexbelow+3)] when @Verts[i%3].V[2]>=zslice
+        indexabove = i%3
+        indexbelow = indexabove-1
+        if indexbelow<0
+          indexbelow += 3
+        break
+      #Slice that edge
+      edgeabove = @Edges[indexbelow].getPortionAboveZ(zslice)
+      V1 = edgeabove.V0
+      #Create a new edge from V0 to V1
+      sliceedge = new Edge(V0, V1)
+      return sliceedge
+    else
+      return null
   getVisibleBoundaryEdges: (zslice, returnval=[])->
+    if @visited?
+      #We've already visited this triangle
+      return returnval
+    #We're visiting this triangle
+    @visited = true
     if (@isVisible(zslice) is false)
       return returnval
     if (@Neighbors.length isnt 3)
       console.log('Neighbors not initialized!')
       return returnval
-    for edge, i in @Edges when (@Neighbors[i].isVisible(zslice) is false)
-      edgeabove =  edge.getPortionAboveZ(zslice)
-      if edgeabove isnt undefined
-        returnval.push(edgeabove)
     if zslice?
-      #Also want to slice this triangle with zslice
-      anybelow = false
-      for v in @Verts when v.V[2]<zslice
-        anybelow = true
-        break
-      if anybelow
-        #We do need to slice this triangle. Find a vertex above the line
-        indexabove=0
-        for v,i in @Verts when v.V[2]>=zslice
-          indexabove = i
-          break
-        #Now find the first index below
-        for i in [(indexabove+1)...(indexabove+3)] when @Verts[i%3].V[2]<zslice
-          indexbelow = i%3
-          indexabove = indexbelow-1
-          if indexabove<0
-            indexabove += 3
-          break
-        #Slice that edge
-        edgeabove = @Edges[indexabove].getPortionAboveZ(zslice)
-        V0 = edgeabove.V1
-        #Now find the next index above
-        for i in [(indexbelow+1)...(indexbelow+3)] when @Verts[i%3].V[2]>=zslice
-          indexabove = i%3
-          indexbelow = indexabove-1
-          if indexbelow<0
-            indexbelow += 3
-          break
-        #Slice that edge
-        edgeabove = @Edges[indexbelow].getPortionAboveZ(zslice)
-        V1 = edgeabove.V0
-        #Create a new edge from V0 to V1
-        sliceedge = new Edge(V0, V1)
+      #Want to slice this triangle with zslice
+      sliceedge = @sliceAtZ(zslice)
+      if sliceedge
         returnval.push(sliceedge)
-
-
+    #Get edges that bound visible/nonvisible transitions
+    for edge, i in @Edges
+      if (@Neighbors[i].isVisible(zslice) is false)
+        #This edge is the transition from visible to nonvisible
+        #Get the portion of the edge that is above the zplane
+        edgeabove =  edge.getPortionAboveZ(zslice)
+        if edgeabove isnt undefined
+          returnval.push(edgeabove)
+      else
+        #The neighbor is visible, so just recurse into that triangle to find more boundaries
+        @Neighbors[i].getVisibleBoundaryEdges(zslice, returnval)
     return returnval
 
 class Polyhedron
@@ -212,14 +300,138 @@ class Polyhedron
     #Max of an array: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/max
     scale = Math.max.apply(null, (Math.abs(v[0]-v[1]) for v in bounds) )
     return [scale, offset]
+  verifyNoCrackInLoop: (returnval)->
+    #Verify that the edge loops have no cracks  Vert.hashString()
+    vertexHashes = {}
+    for edge in returnval
+      edgeverts = [edge.V0, edge.V1]
+      for vert in edgeverts
+        newkey = vert.hashString()
+        if (newkey of vertexHashes)
+          #Increase counts for that vertex
+          vertexHashes[newkey][1] += 1
+          #Should replace the outbound edge vertex with the stored vertex
+        else
+          #Store the vertex with this hash and initialize the count to 1
+          vertexHashes[newkey] = [vert, 1]
+    #The way we verify that the edge loops have no cracks is to check that the
+    #count for each vertex is even. We know this because in a complete loop there
+    #should be an edge in and an edge out from each vertex. Given that you can
+    #many triangles fanning out from a single vertex, the number of edges in/out of that
+    #vertex may be greater than 2, but it must be an even number.
+    thereIsACrack = false
+    for key,value of vertexHashes
+      console.log(key+': '+value[1])
+      if value[1]%2 isnt 0
+        console.log('CRACK IN LOOP!')
+        thereIsACrack = true
+    if thereIsACrack
+      console.log('There is a crack!')
+    else
+      console.log('No crack in any loop!')
+    return not(thereIsACrack)
   getVisibleBoundaryEdges: (zslice=-1000)->
     #console.log('Getting visible boundary above '+zslice)
-    returnval = []
-    tri.getVisibleBoundaryEdges(zslice, returnval) for tri in @Triangles
+    returnval = [] #a collection of collections of edges (each collection comes from a connected set of triangles)
+    for tri,i in @Triangles when (tri.visited? is false)
+      collection = []
+      tri.getVisibleBoundaryEdges(zslice, collection)
+      if collection.length>0
+        #Grab all of the loops as separately
+        (returnval.push(edgeloop) for edgeloop in convertCollectionOfEdgesIntoLoops(collection) )
+        #console.log('collection '+i+' = '+collection.length)
+      tri.visited = true
     #e.consolelog() for e in returnval
+    #@verifyNoCrackInLoop(returnval)
+    for tri in @Triangles
+      delete tri.visited
+    #console.log('Num collections = '+returnval.length)
     return returnval
+  getVisibleBoundaryEdgesPlanarized: (zslice=0, offsetamount=20)->
+    boundaryloops = @getVisibleBoundaryEdges(zslice)
+    outputloops = []  #This will be some subset of the edges of the boundaryloops, flattened to zslice
+    uniqueVerts = {}
+    for edgeloop in boundaryloops when (edgeloop.length>2)
+      flatloop = []
+      for edge in edgeloop
+        V = [new Vector(edge.V0.V[0],edge.V0.V[1],zslice), new Vector(edge.V1.V[0],edge.V1.V[1],zslice)];
+        for v,i in V
+          newkey = v.hashString()
+          if v.newkey of uniqueVerts
+            V[i] = uniqueVerts[newkey]
+          else
+            uniqueVerts[newkey] = v
+        newedge = new Edge(V[0], V[1])
+        if newedge.mag()>0
+          flatloop.push(newedge)
+#      cleanedloops = connectColinearSegmentsInEdgeLoop(flatloop)
+#      outputloops.push( cleanedloops )
+      outputloops.push( flatloop )
+#    return outputloops
+    offsetloops = clipperOffsetLoops(outputloops, offsetamount, zslice)
+    return offsetloops
 
+vertex2ClipperVertex = (vert, scale=1.0)->
+  cvert = {}
+  cvert.X = vert.V[0]*scale
+  cvert.Y = vert.V[1]*scale
+  return cvert
 
+clipperOffsetLoops = (loops, offsetamount, z)->
+  #Create clipper loops out of each loop
+  clipperscale = 1e5
+  cloops = []
+  for edgeloop in loops
+#    console.log(edgeloop)
+    newloop = [ vertex2ClipperVertex(edgeloop[0].V0, clipperscale) ]
+    for edge in edgeloop
+      newloop.push(vertex2ClipperVertex(edge.V1, clipperscale))
+    cloops.push(newloop)
+  ###
+  #First, union all of the loops
+  cpr = new ClipperLib.Clipper()
+  cpr.AddPaths(cloops, ClipperLib.PolyType.ptSubject, true) #true means "closed paths" instead of open paths
+  solution_paths = new ClipperLib.Paths()
+  clipType = ClipperLib.ClipType.ctUnion
+  subject_fillType = ClipperLib.PolyFillType.pftNonZero
+  clip_fillType = ClipperLib.PolyFillType.pftNonZero
+  succeeded = cpr.Execute(clipType, solution_paths, subject_fillType, clip_fillType)
+  ###
+  solution_paths = ClipperLib.Clipper.SimplifyPolygons(cloops, ClipperLib.PolyFillType.pftNonZero)
+  cleandelta = 1e-3
+  solution_paths = ClipperLib.Clipper.CleanPolygons(solution_paths, cleandelta * clipperscale)
+
+  #Create clipper offset object
+  miterLimit = 2
+  arcTolerance = 1e-3*clipperscale #0.25
+  co = new ClipperLib.ClipperOffset(miterLimit, arcTolerance)
+  co.AddPaths(solution_paths, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon)
+  offsetted_polytree = new ClipperLib.PolyTree()
+#  co.Execute(offsetted_polytree, offsetamount*clipperscale)
+#  console.log(offsetted_polytree)
+#  window.polytree = offsetted_polytree
+  offsetted_paths = new ClipperLib.Paths()
+  co.Execute(offsetted_paths, offsetamount*clipperscale)
+  console.log(offsetted_paths)
+  #Create my loops out of clipper loops
+  scale_down = 1e-5
+  loopsout = []
+  for cloop in offsetted_paths
+    loopout = []
+    l = cloop.length
+    v0 = new Vector(cloop[0].X*scale_down, cloop[0].Y*scale_down, z)
+    for vert,i in cloop
+      if i is 0
+        continue
+      v1 = new Vector(vert.X*scale_down, vert.Y*scale_down, z)
+      newedge = new Edge(v0, v1)
+      loopout.push(newedge)
+      v0 = v1
+    if loopout[0].V0 isnt loopout[loopout.length-1].V1
+      newedge = new Edge(loopout[loopout.length-1].V1, loopout[0].V0)
+      loopout.push(newedge)
+    loopsout.push(loopout)
+  return loopsout
 
 ###
 V0 = new Vector(1,2,1)
@@ -333,7 +545,26 @@ window.STLParserASCII = STLParserASCII
 console.log('geometry.coffee loaded')
 
 
-
+###
+loop 1
+embedded:11 (250.00, 171.70, 0.00)
+2embedded:11 (-250.00, 171.70, 0.00)
+2embedded:11 (-250.00, -171.70, 0.00)
+2embedded:11 (250.00, -171.70, 0.00)
+embedded:11 (250.00, 171.70, 0.00)
+embedded:14 loop 2
+embedded:11 (-113.13, -100.97, 0.00)
+2embedded:11 (-113.13, 85.66, 0.00)
+2embedded:11 (162.18, 85.66, 0.00)
+2embedded:11 (162.18, -100.97, 0.00)
+embedded:11 (-113.13, -100.97, 0.00)
+embedded:14 loop 3
+embedded:11 (76.14, 17.23, 0.00)
+2embedded:11 (-62.89, 17.23, 0.00)
+2embedded:11 (-62.89, -63.29, 0.00)
+2embedded:11 (76.14, -63.29, 0.00)
+embedded:11 (76.14, 17.23, 0.00)
+###
 
 
 
