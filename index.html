@@ -207,8 +207,9 @@
           c2.lineTo(V[0], V[1])
       c2.closePath()
       c2.fill()
-      #//Find edges
 
+      #//Find edges
+      edge_pixels = []
       idata = c2.getImageData(0,0,mycanvas.width,mycanvas.height)
       # //Loop through all pixels
       index = 0
@@ -218,11 +219,11 @@
             #//console.log('index ' + index)
             #//Check around
             isedge = false #//Assume this
-            for r2 in [(row-1)..(row+1)]
+            for r2 in [(row-1)..(row+1)] when (isedge is false)
               #//console.log('row ' + row + ' r2 ' + r2)
               if(r2<0 or r2>=mycanvas.height)
                 continue
-              for col2 in [(col-1)..(col+1)]
+              for col2 in [(col-1)..(col+1)] when (isedge is false)
                 if(col2<0 or col2>=mycanvas.width)
                   continue
                 index2 = (r2*mycanvas.width + col2)*4
@@ -231,15 +232,18 @@
                   #//console.log('row '+r2+' col '+col2)
                   isedge = true
                   break
-              if isedge is true
-                break
             if isedge is true
               #//console.log('Edge ' + index)
               idata.data[index+2] = 255
+              edge_pixels.push(index/4)
           index += 4
+      ###
       for index in [0...idata.data.length] by 4 when ( (idata.data[index] isnt 0) and (idata.data[index+2] is 0) )
           idata.data[index] = 0
           idata.data[index+3] = 0
+      c2.putImageData(idata,0,0)
+      ###
+
       c2.putImageData(idata,0,0)
 
 

@@ -1,4 +1,44 @@
 
+loopsFromPixelCoords = (pixels, rows, cols)->
+  #Search order is Down, Left, Up, Right relative to current pixel
+  search_delta = [-cols, -1, cols, 1]
+  search_index = 0
+  #Create a hash of the edge pixels, also find the minimum pixel
+  minpel = rows*cols #Initialize to something large
+  edgepixels = []
+  for pel in pixels
+    edgepixels[pel] = 1
+    if minpel>pel
+      minpel=pel
+  #Start from minpel and search around
+  foundpelcount = 0
+  startpel = minpel
+  loops = []
+  while foundpelcount<pixels.length
+    #Create a loop starting from startpel
+    newloop = []
+    pel = startpel
+    while edgepixels[pel] is 1
+      edgepixels[pel] = 0
+      newloop.push(pel)
+      foundpelcount++
+      #Find the next pel
+      for i in [0...4]
+        j = pel + search_delta[(search_index+i)%4]
+        if edgepixels[j]?
+          #Found the next edge
+          search_index = (search_index+3)%4  #Set the search for the next pixel
+          pel = j
+    loops.push(newloop)
+    #Find a new startpel
+    for pel,val of edgepixels when (val is 1)
+      startpel = pel
+      break
+  return loops
+
+
+window.loopsFromPixelCoords = loopsFromPixelCoords
+
 class Vector
   constructor: (x=0,y=0,z=0)->
     if (x?.constructor?.name) and (x?.constructor?.name is @constructor.name)
@@ -543,7 +583,7 @@ STLParserASCII = (filetext)->
 
 window.STLParserASCII = STLParserASCII
 console.log('geometry.coffee loaded')
-
+window.DistPel = DistPel
 
 ###
 loop 1
